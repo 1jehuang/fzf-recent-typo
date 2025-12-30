@@ -54,6 +54,64 @@ std::string basename(const std::string& path) {
     return (pos == std::string::npos) ? path : path.substr(pos + 1);
 }
 
+std::string dirname(const std::string& path) {
+    size_t pos = path.rfind('/');
+    return (pos == std::string::npos) ? "" : path.substr(0, pos + 1);
+}
+
+std::string get_extension(const std::string& filename) {
+    size_t pos = filename.rfind('.');
+    return (pos == std::string::npos || pos == 0) ? "" : filename.substr(pos + 1);
+}
+
+// Nerd Font icons for common file types
+std::string get_icon(const std::string& filename) {
+    std::string ext = get_extension(filename);
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    // Documents
+    if (ext == "pdf") return " ";
+    if (ext == "doc" || ext == "docx") return "󰈬 ";
+    if (ext == "tex") return " ";
+    if (ext == "md") return " ";
+    if (ext == "txt") return " ";
+
+    // Code
+    if (ext == "cpp" || ext == "cc" || ext == "cxx") return " ";
+    if (ext == "c" || ext == "h") return " ";
+    if (ext == "py") return " ";
+    if (ext == "js") return " ";
+    if (ext == "ts") return " ";
+    if (ext == "rs") return " ";
+    if (ext == "go") return " ";
+    if (ext == "java") return " ";
+    if (ext == "rb") return " ";
+    if (ext == "lua") return " ";
+    if (ext == "sh" || ext == "bash" || ext == "zsh" || ext == "fish") return " ";
+    if (ext == "html") return " ";
+    if (ext == "css") return " ";
+    if (ext == "json") return " ";
+    if (ext == "yaml" || ext == "yml") return " ";
+    if (ext == "toml") return " ";
+    if (ext == "xml") return "󰗀 ";
+
+    // Images
+    if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "bmp" || ext == "svg") return " ";
+
+    // Media
+    if (ext == "mp3" || ext == "wav" || ext == "flac" || ext == "ogg") return " ";
+    if (ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov") return " ";
+
+    // Archives
+    if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "xz" || ext == "7z" || ext == "rar") return " ";
+
+    // Config/dotfiles
+    if (filename[0] == '.') return " ";
+
+    // Default
+    return " ";
+}
+
 std::string to_lower(const std::string& s) {
     std::string result = s;
     std::transform(result.begin(), result.end(), result.begin(), ::tolower);
@@ -104,6 +162,15 @@ int main() {
     keypad(stdscr, TRUE);
     curs_set(1);
 
+    // Initialize colors
+    start_color();
+    use_default_colors();
+    init_pair(1, COLOR_CYAN, -1);    // Prompt
+    init_pair(2, COLOR_YELLOW, -1);  // Loading indicator
+    init_pair(3, COLOR_BLUE, -1);    // Directory path
+    init_pair(4, COLOR_WHITE, -1);   // Filename
+    init_pair(5, COLOR_BLACK, COLOR_CYAN); // Selected item
+
     std::string query;
     size_t selected = 0;
     std::string chosen;
@@ -117,26 +184,52 @@ int main() {
         auto matches = fuzzy_match(query, files, height - 3);
 
         // Draw prompt with loading indicator
+        attron(COLOR_PAIR(1) | A_BOLD);
+        mvprintw(0, 0, "> ");
+        attroff(COLOR_PAIR(1) | A_BOLD);
+        printw("%s", query.c_str());
         if (g_loading) {
-            mvprintw(0, 0, "> %s (loading...)", query.c_str());
-        } else {
-            mvprintw(0, 0, "> %s", query.c_str());
+            attron(COLOR_PAIR(2));
+            printw(" (loading...)");
+            attroff(COLOR_PAIR(2));
         }
 
         // Draw matches
         for (size_t i = 0; i < matches.size() && (int)(i + 2) < height; ++i) {
             const auto& [file, score] = matches[i];
-            std::string display = file;
-            if ((int)display.length() > width - 4) {
-                display = display.substr(display.length() - width + 4);
-            }
+            std::string fname = basename(file);
+            std::string dir = dirname(file);
+            std::string icon = get_icon(fname);
+
+            move(i + 2, 0);
 
             if (i == selected) {
-                attron(A_REVERSE);
-                mvprintw(i + 2, 0, "▶ %s", display.c_str());
-                attroff(A_REVERSE);
+                attron(COLOR_PAIR(5) | A_BOLD);
+                printw(" %s%s ", icon.c_str(), fname.c_str());
+                attroff(A_BOLD);
+                // Truncate dir if needed
+                int remaining = width - 4 - fname.length() - icon.length();
+                if ((int)dir.length() > remaining && remaining > 3) {
+                    dir = "..." + dir.substr(dir.length() - remaining + 3);
+                }
+                printw("%s", dir.c_str());
+                attroff(COLOR_PAIR(5));
             } else {
-                mvprintw(i + 2, 0, "  %s", display.c_str());
+                printw("  ");
+                attron(COLOR_PAIR(1));
+                printw("%s", icon.c_str());
+                attroff(COLOR_PAIR(1));
+                attron(A_BOLD);
+                printw("%s ", fname.c_str());
+                attroff(A_BOLD);
+                attron(COLOR_PAIR(3) | A_DIM);
+                // Truncate dir if needed
+                int remaining = width - 4 - fname.length() - icon.length();
+                if ((int)dir.length() > remaining && remaining > 3) {
+                    dir = "..." + dir.substr(dir.length() - remaining + 3);
+                }
+                printw("%s", dir.c_str());
+                attroff(COLOR_PAIR(3) | A_DIM);
             }
         }
 
