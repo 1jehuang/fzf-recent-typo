@@ -17,10 +17,11 @@ Built with C++ and [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) f
 - `rapidfuzz-cpp` - Header-only fuzzy matching library
 - `ncurses` - Terminal UI
 - `fd` - Fast file finder (runtime dependency)
+- A **Nerd Font** - For file type icons (e.g., JetBrainsMono Nerd Font)
 
 On Arch Linux:
 ```bash
-sudo pacman -S rapidfuzz-cpp ncurses fd
+sudo pacman -S rapidfuzz-cpp ncurses fd ttf-jetbrains-mono-nerd
 ```
 
 ## Build & Install
