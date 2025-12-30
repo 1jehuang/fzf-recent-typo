@@ -182,7 +182,34 @@ int main() {
     }
 
     if (!chosen.empty()) {
-        std::string cmd = "nohup xdg-open \"" + chosen + "\" >/dev/null 2>&1 &";
+        // Check if file is a text type that needs a terminal
+        std::string mime_cmd = "xdg-mime query filetype \"" + chosen + "\"";
+        FILE* mime_pipe = popen(mime_cmd.c_str(), "r");
+        std::string mimetype;
+        if (mime_pipe) {
+            char buf[256];
+            if (fgets(buf, sizeof(buf), mime_pipe)) {
+                mimetype = buf;
+                if (!mimetype.empty() && mimetype.back() == '\n') {
+                    mimetype.pop_back();
+                }
+            }
+            pclose(mime_pipe);
+        }
+
+        // Text files need a terminal, others can use xdg-open directly
+        bool is_text = mimetype.find("text/") == 0 ||
+                       mimetype.find("application/json") == 0 ||
+                       mimetype.find("application/xml") == 0 ||
+                       mimetype.find("application/x-shellscript") == 0;
+
+        std::string cmd;
+        if (is_text) {
+            // Open in new terminal with default editor
+            cmd = "nohup kitty --single-instance nvim \"" + chosen + "\" >/dev/null 2>&1 &";
+        } else {
+            cmd = "nohup xdg-open \"" + chosen + "\" >/dev/null 2>&1 &";
+        }
         system(cmd.c_str());
     }
 
