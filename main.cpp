@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <atomic>
+#include <clocale>
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -153,6 +154,9 @@ std::vector<std::pair<std::string, double>> fuzzy_match(
 }
 
 int main() {
+    // Enable UTF-8 for ncurses (required for Nerd Font icons)
+    setlocale(LC_ALL, "");
+
     // Start loading files in background thread
     std::thread loader(load_recent_files);
 
