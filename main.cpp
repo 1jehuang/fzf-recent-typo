@@ -26,7 +26,7 @@ std::atomic<bool> g_loading{true};
 
 void load_recent_files() {
     FILE* pipe = popen(
-        "fd . ~ -t f --changed-within 2d -H -E .git -E node_modules -E .cache -E .npm",
+        "fd . ~ /tmp -t f --changed-within 2d -H -E .git -E node_modules -E .cache -E .npm",
         "r"
     );
 
