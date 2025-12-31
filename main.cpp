@@ -26,10 +26,7 @@ std::atomic<bool> g_loading{true};
 
 void load_recent_files() {
     FILE* pipe = popen(
-        "fd . ~ --type f --changed-within 1w --hidden "
-        "--exclude .git --exclude node_modules "
-        "--exclude .cache --exclude .local/share "
-        "--exclude .config/google-chrome --exclude .mozilla",
+        "fd . ~ -t f --changed-within 2d -H -E .git -E node_modules -E .cache -E .npm",
         "r"
     );
 
@@ -210,6 +207,14 @@ int main() {
     input_option.on_change = [&] {
         selected = 0;  // Reset selection when query changes
     };
+    // Custom styling - no reverse video highlight
+    input_option.transform = [](InputState state) {
+        state.element |= color(Color::White);
+        if (state.is_placeholder) {
+            state.element |= dim;
+        }
+        return state.element;
+    };
     auto input = Input(&query, "Type to search...", input_option);
 
     // Main component
@@ -218,13 +223,15 @@ int main() {
         matches = fuzzy_match(query, files);
 
         // Handle navigation
-        if (event == Event::ArrowDown || event == Event::CtrlN) {
+        // Note: Ctrl+J is same as Enter (ASCII 10), so we don't use it for navigation
+        if (event == Event::ArrowDown || event == Event::CtrlN || event == Event::Tab) {
             if (!matches.empty() && selected < (int)matches.size() - 1) {
                 selected++;
             }
             return true;
         }
-        if (event == Event::ArrowUp || event == Event::CtrlP) {
+        if (event == Event::ArrowUp || event == Event::CtrlP ||
+            event == Event::CtrlK || event == Event::TabReverse) {
             if (selected > 0) {
                 selected--;
             }
@@ -238,8 +245,10 @@ int main() {
             return true;
         }
 
-        // Ctrl+W to delete word (standard terminal binding)
-        if (event == Event::CtrlW) {
+        // Ctrl+W or Alt+Backspace to delete word
+        // Alt+Backspace sends ESC (0x1b) + DEL (0x7f)
+        bool is_alt_backspace = event.input() == "\x1b\x7f";
+        if (event == Event::CtrlW || is_alt_backspace) {
             // Delete last word
             while (!query.empty() && query.back() == ' ') query.pop_back();
             while (!query.empty() && query.back() != ' ') query.pop_back();
@@ -247,12 +256,13 @@ int main() {
             return true;
         }
 
-        // Enter to select
+        // Enter to select - only exit if we have a valid selection
         if (event == Event::Return) {
             if (!matches.empty() && selected < (int)matches.size()) {
                 chosen = matches[selected].first;
+                screen.Exit();
             }
-            screen.Exit();
+            // If no valid selection, do nothing (don't exit)
             return true;
         }
 
@@ -292,7 +302,7 @@ int main() {
                     text(fname) | bold | color(Color::White),
                     text(" "),
                     text(dir) | dim | color(Color::Blue),
-                }) | bgcolor(Color::RGB(40, 44, 52)) | flex;
+                }) | bgcolor(Color::RGB(40, 44, 52));
             } else {
                 entry = hbox({
                     text("  " + icon + " ") | color(Color::Cyan),
@@ -333,7 +343,7 @@ int main() {
                 text(" "),
                 component->Render() | flex,
             }) | border,
-            vbox(file_elements) | flex | frame,
+            vbox(file_elements) | yframe | flex,
         }) | flex;
 
         // Get terminal size for responsive layout
@@ -344,7 +354,7 @@ int main() {
             auto right_pane = vbox({
                 text(" Preview") | bold | color(Color::Yellow),
                 separator(),
-                vbox(preview_elements) | flex | frame,
+                vbox(preview_elements) | yframe | flex,
             }) | border | size(WIDTH, EQUAL, 50);
 
             return vbox({
@@ -383,6 +393,48 @@ int main() {
     }
 
     if (!chosen.empty()) {
+        // Check if file exists
+        std::ifstream check(chosen);
+        if (!check.good()) {
+            std::string notify = "notify-send 'File Picker' 'File not found: " + chosen + "'";
+            system(notify.c_str());
+            return 1;
+        }
+        check.close();
+
+        // Check if there's a handler for this file type
+        std::string mime_cmd = "xdg-mime query filetype \"" + chosen + "\" 2>/dev/null";
+        FILE* mime_pipe = popen(mime_cmd.c_str(), "r");
+        std::string mime_type;
+        if (mime_pipe) {
+            char buffer[256];
+            if (fgets(buffer, sizeof(buffer), mime_pipe)) {
+                mime_type = buffer;
+                if (!mime_type.empty() && mime_type.back() == '\n') {
+                    mime_type.pop_back();
+                }
+            }
+            pclose(mime_pipe);
+        }
+
+        std::string handler_cmd = "xdg-mime query default \"" + mime_type + "\" 2>/dev/null";
+        FILE* handler_pipe = popen(handler_cmd.c_str(), "r");
+        std::string handler;
+        if (handler_pipe) {
+            char buffer[256];
+            if (fgets(buffer, sizeof(buffer), handler_pipe)) {
+                handler = buffer;
+            }
+            pclose(handler_pipe);
+        }
+
+        if (handler.empty()) {
+            std::string notify = "notify-send 'File Picker' 'No handler for: " + mime_type + "'";
+            system(notify.c_str());
+            return 1;
+        }
+
+        // Open in background - handler exists so it should work
         std::string cmd = "nohup xdg-open \"" + chosen + "\" >/dev/null 2>&1 &";
         system(cmd.c_str());
     }
