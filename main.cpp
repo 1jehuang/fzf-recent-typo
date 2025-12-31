@@ -190,6 +190,13 @@ std::vector<std::string> read_file_preview(const std::string& path, int max_line
 }
 
 int main() {
+    // Log startup
+    {
+        std::ofstream log("/tmp/fzf-recent-typo.log", std::ios::app);
+        log << "=== STARTUP " << time(nullptr) << " ===\n";
+        log.close();
+    }
+
     setlocale(LC_ALL, "");
 
     // Start loading files in background
@@ -393,14 +400,22 @@ int main() {
     }
 
     if (!chosen.empty()) {
+        // Log to file for debugging
+        std::ofstream log("/tmp/fzf-recent-typo.log", std::ios::app);
+        log << "=== " << time(nullptr) << " ===\n";
+        log << "Selected: " << chosen << "\n";
+
         // Check if file exists
         std::ifstream check(chosen);
         if (!check.good()) {
+            log << "FAIL: File not found\n";
+            log.close();
             std::string notify = "notify-send 'File Picker' 'File not found: " + chosen + "'";
             system(notify.c_str());
             return 1;
         }
         check.close();
+        log << "OK: File exists\n";
 
         // Check if there's a handler for this file type
         std::string mime_cmd = "xdg-mime query filetype \"" + chosen + "\" 2>/dev/null";
@@ -416,6 +431,7 @@ int main() {
             }
             pclose(mime_pipe);
         }
+        log << "MIME: " << mime_type << "\n";
 
         std::string handler_cmd = "xdg-mime query default \"" + mime_type + "\" 2>/dev/null";
         FILE* handler_pipe = popen(handler_cmd.c_str(), "r");
@@ -424,19 +440,41 @@ int main() {
             char buffer[256];
             if (fgets(buffer, sizeof(buffer), handler_pipe)) {
                 handler = buffer;
+                if (!handler.empty() && handler.back() == '\n') {
+                    handler.pop_back();
+                }
             }
             pclose(handler_pipe);
         }
+        log << "Handler: " << handler << "\n";
 
         if (handler.empty()) {
+            log << "FAIL: No handler\n";
+            log.close();
             std::string notify = "notify-send 'File Picker' 'No handler for: " + mime_type + "'";
             system(notify.c_str());
             return 1;
         }
 
-        // Open in background - handler exists so it should work
-        std::string cmd = "nohup xdg-open \"" + chosen + "\" >/dev/null 2>&1 &";
+        // Check if handler needs a terminal (like nvim)
+        std::string cmd;
+        if (handler == "nvim.desktop") {
+            // Open nvim in a new kitty window - use setsid to detach
+            cmd = "setsid --fork kitty nvim \"" + chosen + "\" >/dev/null 2>&1";
+        } else {
+            // Use setsid to fully detach xdg-open so it survives after we exit
+            cmd = "setsid --fork xdg-open \"" + chosen + "\" >/dev/null 2>&1";
+        }
+        log << "CMD: " << cmd << "\n";
+        log << "OK: Opening\n";
+        log.close();
         system(cmd.c_str());
+    } else {
+        // Log when no file was chosen (Escape or empty selection)
+        std::ofstream log("/tmp/fzf-recent-typo.log", std::ios::app);
+        log << "=== " << time(nullptr) << " ===\n";
+        log << "No file chosen (cancelled or empty)\n";
+        log.close();
     }
 
     return 0;
