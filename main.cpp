@@ -3,15 +3,23 @@
 #include <clocale>
 #include <cstdlib>
 #include <fstream>
-#include <iostream>
 #include <mutex>
-#include <ncurses.h>
-#include <rapidfuzz/fuzz.hpp>
 #include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
+#include <rapidfuzz/fuzz.hpp>
+
+#include "ftxui/component/component.hpp"
+#include "ftxui/component/component_base.hpp"
+#include "ftxui/component/event.hpp"
+#include "ftxui/component/screen_interactive.hpp"
+#include "ftxui/dom/elements.hpp"
+
+using namespace ftxui;
+
+// Global state
 std::vector<std::string> g_files;
 std::mutex g_files_mutex;
 std::atomic<bool> g_loading{true};
@@ -71,46 +79,46 @@ std::string get_icon(const std::string& filename) {
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     // Documents
-    if (ext == "pdf") return " ";
-    if (ext == "doc" || ext == "docx") return "󰈬 ";
-    if (ext == "tex") return " ";
-    if (ext == "md") return " ";
-    if (ext == "txt") return " ";
+    if (ext == "pdf") return "";
+    if (ext == "doc" || ext == "docx") return "󰈬";
+    if (ext == "tex") return "";
+    if (ext == "md") return "";
+    if (ext == "txt") return "";
 
     // Code
-    if (ext == "cpp" || ext == "cc" || ext == "cxx") return " ";
-    if (ext == "c" || ext == "h") return " ";
-    if (ext == "py") return " ";
-    if (ext == "js") return " ";
-    if (ext == "ts") return " ";
-    if (ext == "rs") return " ";
-    if (ext == "go") return " ";
-    if (ext == "java") return " ";
-    if (ext == "rb") return " ";
-    if (ext == "lua") return " ";
-    if (ext == "sh" || ext == "bash" || ext == "zsh" || ext == "fish") return " ";
-    if (ext == "html") return " ";
-    if (ext == "css") return " ";
-    if (ext == "json") return " ";
-    if (ext == "yaml" || ext == "yml") return " ";
-    if (ext == "toml") return " ";
-    if (ext == "xml") return "󰗀 ";
+    if (ext == "cpp" || ext == "cc" || ext == "cxx") return "";
+    if (ext == "c" || ext == "h") return "";
+    if (ext == "py") return "";
+    if (ext == "js") return "";
+    if (ext == "ts") return "";
+    if (ext == "rs") return "";
+    if (ext == "go") return "";
+    if (ext == "java") return "";
+    if (ext == "rb") return "";
+    if (ext == "lua") return "";
+    if (ext == "sh" || ext == "bash" || ext == "zsh" || ext == "fish") return "";
+    if (ext == "html") return "";
+    if (ext == "css") return "";
+    if (ext == "json") return "";
+    if (ext == "yaml" || ext == "yml") return "";
+    if (ext == "toml") return "";
+    if (ext == "xml") return "󰗀";
 
     // Images
-    if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "bmp" || ext == "svg") return " ";
+    if (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "gif" || ext == "bmp" || ext == "svg") return "";
 
     // Media
-    if (ext == "mp3" || ext == "wav" || ext == "flac" || ext == "ogg") return " ";
-    if (ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov") return " ";
+    if (ext == "mp3" || ext == "wav" || ext == "flac" || ext == "ogg") return "";
+    if (ext == "mp4" || ext == "mkv" || ext == "avi" || ext == "mov") return "";
 
     // Archives
-    if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "xz" || ext == "7z" || ext == "rar") return " ";
+    if (ext == "zip" || ext == "tar" || ext == "gz" || ext == "xz" || ext == "7z" || ext == "rar") return "";
 
     // Config/dotfiles
-    if (filename[0] == '.') return " ";
+    if (!filename.empty() && filename[0] == '.') return "";
 
     // Default
-    return " ";
+    return "";
 }
 
 std::string to_lower(const std::string& s) {
@@ -122,7 +130,7 @@ std::string to_lower(const std::string& s) {
 std::vector<std::pair<std::string, double>> fuzzy_match(
     const std::string& query,
     const std::vector<std::string>& files,
-    size_t limit = 30
+    size_t limit = 50
 ) {
     std::vector<std::pair<std::string, double>> results;
 
@@ -153,127 +161,223 @@ std::vector<std::pair<std::string, double>> fuzzy_match(
     return results;
 }
 
+std::vector<std::string> read_file_preview(const std::string& path, int max_lines = 20) {
+    std::vector<std::string> lines;
+    std::ifstream file(path);
+    if (!file.is_open()) {
+        lines.push_back("[Cannot read file]");
+        return lines;
+    }
+
+    std::string line;
+    int count = 0;
+    while (std::getline(file, line) && count < max_lines) {
+        // Truncate long lines
+        if (line.length() > 80) {
+            line = line.substr(0, 77) + "...";
+        }
+        // Replace tabs with spaces
+        size_t pos;
+        while ((pos = line.find('\t')) != std::string::npos) {
+            line.replace(pos, 1, "  ");
+        }
+        lines.push_back(line);
+        count++;
+    }
+
+    if (lines.empty()) {
+        lines.push_back("[Empty file]");
+    }
+
+    return lines;
+}
+
 int main() {
-    // Enable UTF-8 for ncurses (required for Nerd Font icons)
     setlocale(LC_ALL, "");
 
-    // Start loading files in background thread
+    // Start loading files in background
     std::thread loader(load_recent_files);
 
-    initscr();
-    cbreak();
-    noecho();
-    keypad(stdscr, TRUE);
-    curs_set(1);
-
-    // Initialize colors
-    start_color();
-    use_default_colors();
-    init_pair(1, COLOR_CYAN, -1);    // Prompt
-    init_pair(2, COLOR_YELLOW, -1);  // Loading indicator
-    init_pair(3, COLOR_BLUE, -1);    // Directory path
-    init_pair(4, COLOR_WHITE, -1);   // Filename
-    init_pair(5, COLOR_BLACK, COLOR_CYAN); // Selected item
+    auto screen = ScreenInteractive::Fullscreen();
 
     std::string query;
-    size_t selected = 0;
+    int selected = 0;
     std::string chosen;
+    std::vector<std::pair<std::string, double>> matches;
 
-    while (true) {
-        clear();
-        int height, width;
-        getmaxyx(stdscr, height, width);
+    // Input component for the query
+    auto input_option = InputOption();
+    input_option.on_change = [&] {
+        selected = 0;  // Reset selection when query changes
+    };
+    auto input = Input(&query, "Type to search...", input_option);
 
+    // Main component
+    auto component = CatchEvent(input, [&](Event event) {
         auto files = get_files_snapshot();
-        auto matches = fuzzy_match(query, files, height - 3);
+        matches = fuzzy_match(query, files);
 
-        // Draw prompt with loading indicator
-        attron(COLOR_PAIR(1) | A_BOLD);
-        mvprintw(0, 0, "> ");
-        attroff(COLOR_PAIR(1) | A_BOLD);
-        printw("%s", query.c_str());
-        if (g_loading) {
-            attron(COLOR_PAIR(2));
-            printw(" (loading...)");
-            attroff(COLOR_PAIR(2));
+        // Handle navigation
+        if (event == Event::ArrowDown || event == Event::CtrlN) {
+            if (!matches.empty() && selected < (int)matches.size() - 1) {
+                selected++;
+            }
+            return true;
+        }
+        if (event == Event::ArrowUp || event == Event::CtrlP) {
+            if (selected > 0) {
+                selected--;
+            }
+            return true;
         }
 
-        // Draw matches
-        for (size_t i = 0; i < matches.size() && (int)(i + 2) < height; ++i) {
+        // Ctrl+U to clear
+        if (event == Event::CtrlU) {
+            query.clear();
+            selected = 0;
+            return true;
+        }
+
+        // Ctrl+W to delete word (standard terminal binding)
+        if (event == Event::CtrlW) {
+            // Delete last word
+            while (!query.empty() && query.back() == ' ') query.pop_back();
+            while (!query.empty() && query.back() != ' ') query.pop_back();
+            selected = 0;
+            return true;
+        }
+
+        // Enter to select
+        if (event == Event::Return) {
+            if (!matches.empty() && selected < (int)matches.size()) {
+                chosen = matches[selected].first;
+            }
+            screen.Exit();
+            return true;
+        }
+
+        // Escape to cancel
+        if (event == Event::Escape) {
+            screen.Exit();
+            return true;
+        }
+
+        return false;
+    });
+
+    // Renderer
+    auto renderer = Renderer(component, [&] {
+        auto files = get_files_snapshot();
+        matches = fuzzy_match(query, files);
+
+        // Clamp selection
+        if (selected >= (int)matches.size()) {
+            selected = matches.empty() ? 0 : matches.size() - 1;
+        }
+
+        // Build file list
+        Elements file_elements;
+        int visible_count = std::min((int)matches.size(), 30);
+
+        for (int i = 0; i < visible_count; ++i) {
             const auto& [file, score] = matches[i];
             std::string fname = basename(file);
             std::string dir = dirname(file);
             std::string icon = get_icon(fname);
 
-            move(i + 2, 0);
-
+            Element entry;
             if (i == selected) {
-                attron(COLOR_PAIR(5) | A_BOLD);
-                printw(" %s%s ", icon.c_str(), fname.c_str());
-                attroff(A_BOLD);
-                // Truncate dir if needed
-                int remaining = width - 4 - fname.length() - icon.length();
-                if ((int)dir.length() > remaining && remaining > 3) {
-                    dir = "..." + dir.substr(dir.length() - remaining + 3);
-                }
-                printw("%s", dir.c_str());
-                attroff(COLOR_PAIR(5));
+                entry = hbox({
+                    text(" " + icon + " ") | color(Color::Cyan),
+                    text(fname) | bold | color(Color::White),
+                    text(" "),
+                    text(dir) | dim | color(Color::Blue),
+                }) | bgcolor(Color::RGB(40, 44, 52)) | flex;
             } else {
-                printw("  ");
-                attron(COLOR_PAIR(1));
-                printw("%s", icon.c_str());
-                attroff(COLOR_PAIR(1));
-                attron(A_BOLD);
-                printw("%s ", fname.c_str());
-                attroff(A_BOLD);
-                attron(COLOR_PAIR(3) | A_DIM);
-                // Truncate dir if needed
-                int remaining = width - 4 - fname.length() - icon.length();
-                if ((int)dir.length() > remaining && remaining > 3) {
-                    dir = "..." + dir.substr(dir.length() - remaining + 3);
-                }
-                printw("%s", dir.c_str());
-                attroff(COLOR_PAIR(3) | A_DIM);
+                entry = hbox({
+                    text("  " + icon + " ") | color(Color::Cyan),
+                    text(fname) | bold,
+                    text(" "),
+                    text(dir) | dim | color(Color::GrayDark),
+                });
             }
+            file_elements.push_back(entry);
         }
 
-        move(0, 2 + query.length());
-        refresh();
-
-        // Non-blocking input with timeout for responsive loading updates
-        timeout(g_loading ? 50 : -1);
-        int ch = getch();
-
-        if (ch == ERR) continue; // Timeout, just refresh
-
-        if (ch == 27) { // Escape
-            break;
-        } else if (ch == '\n' || ch == '\r') {
-            if (!matches.empty() && selected < matches.size()) {
-                chosen = matches[selected].first;
-            }
-            break;
-        } else if (ch == KEY_UP || ch == 16) { // Up or Ctrl+P
-            if (selected > 0) selected--;
-        } else if (ch == KEY_DOWN || ch == 14) { // Down or Ctrl+N
-            if (!matches.empty() && selected < matches.size() - 1) selected++;
-        } else if (ch == KEY_BACKSPACE || ch == 127) {
-            if (!query.empty()) {
-                query.pop_back();
-                selected = 0;
-            }
-        } else if (ch == 21) { // Ctrl+U
-            query.clear();
-            selected = 0;
-        } else if (ch >= 32 && ch <= 126) {
-            query += (char)ch;
-            selected = 0;
+        if (file_elements.empty()) {
+            file_elements.push_back(text("  No matches") | dim);
         }
+
+        // Build preview pane
+        Elements preview_elements;
+        if (!matches.empty() && selected < (int)matches.size()) {
+            auto preview_lines = read_file_preview(matches[selected].first);
+            for (const auto& line : preview_lines) {
+                preview_elements.push_back(text(line) | color(Color::GrayLight));
+            }
+        } else {
+            preview_elements.push_back(text("No file selected") | dim);
+        }
+
+        // Status line
+        std::string status = std::to_string(matches.size()) + " matches";
+        if (g_loading) {
+            status += " (loading...)";
+        }
+        status += " | " + std::to_string(files.size()) + " files";
+
+        // Build layout
+        auto left_pane = vbox({
+            hbox({
+                text(" ") | color(Color::Cyan) | bold,
+                text(" "),
+                component->Render() | flex,
+            }) | border,
+            vbox(file_elements) | flex | frame,
+        }) | flex;
+
+        // Get terminal size for responsive layout
+        auto terminal = Terminal::Size();
+        bool show_preview = terminal.dimx >= 100;
+
+        if (show_preview) {
+            auto right_pane = vbox({
+                text(" Preview") | bold | color(Color::Yellow),
+                separator(),
+                vbox(preview_elements) | flex | frame,
+            }) | border | size(WIDTH, EQUAL, 50);
+
+            return vbox({
+                hbox({
+                    left_pane,
+                    right_pane,
+                }) | flex,
+                text(status) | dim | center,
+            });
+        } else {
+            // Narrow window - no preview
+            return vbox({
+                left_pane | flex,
+                text(status) | dim | center,
+            });
+        }
+    });
+
+    // Refresh periodically while loading
+    std::atomic<bool> running{true};
+    std::thread refresh_thread([&] {
+        while (running && g_loading) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            screen.Post(Event::Custom);
+        }
+    });
+
+    screen.Loop(renderer);
+
+    running = false;
+    if (refresh_thread.joinable()) {
+        refresh_thread.join();
     }
-
-    endwin();
-
-    // Wait for loader thread to finish
     if (loader.joinable()) {
         loader.join();
     }

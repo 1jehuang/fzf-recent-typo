@@ -1,6 +1,11 @@
 CXX = g++
 CXXFLAGS = -O3 -std=c++17 -pthread -Wall -Wextra
-LDFLAGS = -lncurses
+CXXFLAGS += -I./ftxui/include
+
+# FTXUI libraries (order matters for static linking)
+FTXUI_LIBS = ./ftxui/build/libftxui-component.a \
+             ./ftxui/build/libftxui-dom.a \
+             ./ftxui/build/libftxui-screen.a
 
 TARGET = fzf-recent-typo
 PREFIX ?= $(HOME)/.local
@@ -9,8 +14,8 @@ PREFIX ?= $(HOME)/.local
 
 all: $(TARGET)
 
-$(TARGET): main.cpp
-	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS)
+$(TARGET): main.cpp $(FTXUI_LIBS)
+	$(CXX) $(CXXFLAGS) $< -o $@ $(FTXUI_LIBS)
 
 install: $(TARGET)
 	install -d $(PREFIX)/bin

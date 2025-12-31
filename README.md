@@ -2,31 +2,44 @@
 
 A fast, typo-tolerant fuzzy file finder for recently modified files.
 
-Built with C++ and [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) for edit-distance based matching that handles typos gracefully.
+Built with C++, [FTXUI](https://github.com/ArthurSonzogni/FTXUI) for the terminal UI, and [rapidfuzz-cpp](https://github.com/rapidfuzz/rapidfuzz-cpp) for edit-distance based matching that handles typos gracefully.
 
 ## Features
 
 - **Instant UI**: Shows immediately while files load in background
 - **Typo-tolerant**: Uses edit distance matching (WRatio algorithm)
 - **Fast**: Pure C++ with SIMD-optimized rapidfuzz
-- **Recent files**: Only shows files modified in the last 2 hours
+- **Recent files**: Only shows files modified in the last week
+- **File preview**: Shows file contents in a side pane (responsive - hidden on narrow terminals)
+- **File icons**: Nerd Font icons for different file types
 - **Smart exclusions**: Skips cache directories, node_modules, .git, etc.
 
 ## Dependencies
 
 - `rapidfuzz-cpp` - Header-only fuzzy matching library
-- `ncurses` - Terminal UI
+- `cmake` - For building FTXUI
 - `fd` - Fast file finder (runtime dependency)
 - A **Nerd Font** - For file type icons (e.g., JetBrainsMono Nerd Font)
 
 On Arch Linux:
 ```bash
-sudo pacman -S rapidfuzz-cpp ncurses fd ttf-jetbrains-mono-nerd
+sudo pacman -S rapidfuzz-cpp cmake fd ttf-jetbrains-mono-nerd
 ```
 
 ## Build & Install
 
 ```bash
+# Clone with submodules
+git clone --recursive https://github.com/1jehuang/fzf-recent-typo.git
+cd fzf-recent-typo
+
+# Build FTXUI
+cd ftxui && mkdir -p build && cd build
+cmake .. -DFTXUI_BUILD_EXAMPLES=OFF -DFTXUI_BUILD_TESTS=OFF
+make -j$(nproc)
+cd ../..
+
+# Build and install
 make
 make install  # Installs to ~/.local/bin
 ```
@@ -47,11 +60,12 @@ fzf-recent-typo
 - Enter to open selected file with `xdg-open`
 - Escape to cancel
 - Ctrl+U to clear query
+- Ctrl+W to delete word
 
 ## Configuration
 
 Edit the `fd` command in `main.cpp` to customize:
-- Time window (`--changed-within 2h`)
+- Time window (`--changed-within 1w`)
 - Excluded directories
 - Search root directory
 
@@ -62,6 +76,7 @@ Edit the `fd` command in `main.cpp` to customize:
 3. Each keystroke triggers fuzzy matching using rapidfuzz's WRatio
 4. WRatio combines multiple similarity metrics for typo tolerance
 5. Results update in real-time as you type
+6. Preview pane shows selected file contents (on wide terminals)
 
 ## Why Not Just Use fzf?
 
